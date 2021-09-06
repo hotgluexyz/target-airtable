@@ -30,7 +30,7 @@ class AirtableSink(BatchSink):
         # Get the base id
         base_id = self.config.get("base_id")
         # Get the table name (URL encoded)
-        table_name = urllib.parse.quote(self.config.get("table_name"))
+        table_name = urllib.parse.quote(self.stream_name)
         token = self.config.get("token")
         endpoint = f"{records_url}/{base_id}/{table_name}"
 

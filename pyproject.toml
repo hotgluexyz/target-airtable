@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "target-airtable"
-version = "0.0.1"
+version = "0.0.2"
 description = "`target-airtable` is a Singer target for Airtable, built with the Meltano SDK for Singer Targets."
 authors = ["hotglue"]
 license = "Apache 2.0"

@@ -19,7 +19,6 @@ class TargetAirtable(Target):
     config_jsonschema = th.PropertiesList(
         th.Property("token", th.StringType, required=True),
         th.Property("base_id", th.StringType, required=True),
-        th.Property("table_name", th.StringType, required=True),
         th.Property("records_url", th.StringType)
     ).to_dict()
     default_sink_class = AirtableSink
