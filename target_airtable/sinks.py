@@ -20,7 +20,12 @@ class AirtableSink(BatchSink):
 
         def preprocess_records(x):
             # Wrap every record in a JSON object under the fields
-            return x
+            if not "fields" in x:
+                return {
+                    "fields": x
+                }
+            else:
+                return x
 
         records = [preprocess_records(x) for x in context["records"]]
         # Get the records_url (we have a default, but that may change)
