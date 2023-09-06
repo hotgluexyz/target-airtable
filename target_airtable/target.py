@@ -22,3 +22,6 @@ class TargetAirtable(Target):
         th.Property("records_url", th.StringType)
     ).to_dict()
     default_sink_class = AirtableSink
+
+if __name__ == '__main__':
+    TargetAirtable.cli()

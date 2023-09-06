@@ -20,9 +20,7 @@ class AirtableSink(BatchSink):
 
         def preprocess_records(x):
             # Wrap every record in a JSON object under the fields
-            return {
-                "fields": x
-            }
+            return x
 
         records = [preprocess_records(x) for x in context["records"]]
         # Get the records_url (we have a default, but that may change)
@@ -30,7 +28,7 @@ class AirtableSink(BatchSink):
         # Get the base id
         base_id = self.config.get("base_id")
         # Get the table name (URL encoded)
-        table_name = urllib.parse.quote(self.stream_name)
+        table_name = self.config.get("table_name",urllib.parse.quote(self.stream_name))
         token = self.config.get("token")
         endpoint = f"{records_url}/{base_id}/{table_name}"
 
