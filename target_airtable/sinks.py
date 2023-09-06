@@ -45,6 +45,7 @@ class AirtableSink(BatchSink):
         if not r.ok:
             # If request fails, log error message
             self.logger.error(r.text)
+            raise Exception(r.text)
 
         # Clean up records
         context["records"] = []
