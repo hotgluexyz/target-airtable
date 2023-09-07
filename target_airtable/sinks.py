@@ -29,7 +29,7 @@ class AirtableSink(BatchSink):
 
         records = [preprocess_records(x) for x in context["records"]]
         # Get the records_url (we have a default, but that may change)
-        records_url = self.config.get("records_url", "https://api.airtable.com/v0")
+        records_url = "https://api.airtable.com/v0"
         # Get the base id
         base_id = self.config.get("base_id")
         # Get the table name (URL encoded)
