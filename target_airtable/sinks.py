@@ -26,6 +26,12 @@ class AirtableSink(BatchSink):
             uuid.uuid4().__str__().replace("-", "")*2
         )
 
+    def _chunk(self, lst, n):
+        """Yield successive n-sized chunks from lst."""
+        for i in range(0, len(lst), n):
+            yield lst[i:i + n]
+
+
     def _gen_new_token_url(self):
         """
         Internal Helper function to help users generate
@@ -135,23 +141,27 @@ class AirtableSink(BatchSink):
             record["fields"].pop("id")
             clean_new_records.append(record)
         
-        self._request(
-            "PATCH",
-            endpoint,
-            json={
-                "records": clean_records_to_update,
-                "typecast": True
-            },
-        )
 
+        for record_update_chunk in self._chunk(clean_records_to_update, self.max_size):
+            self.logger.info(f"Posting records: {record_update_chunk}")
+            self._request(
+                "PATCH",
+                endpoint,
+                json={
+                    "records": record_update_chunk,
+                    "typecast": True
+                },
+            )
 
-        self._request(
-            "POST",
-            endpoint,
-            json={
-                "records": clean_new_records,
-                "typecast": True
-            },
-        )
+        for record_create_chunk in self._chunk(clean_new_records, self.max_size):
+            self.logger.info(f"Posting records: {record_create_chunk}")
+            self._request(
+                "POST",
+                endpoint,
+                json={
+                    "records": record_create_chunk,
+                    "typecast": True
+                },
+            )
         # Clean up records
         context["records"] = []
