@@ -180,20 +180,20 @@ class AirtableSink(BatchSink):
 
         # Make the request to patch the records
         clean_records_to_update = []
-        # for record in records_to_update:
-        #     record_id = record["fields"].pop("id")
-        #     record["id"] = str(record_id)
-        #     clean_records_to_update.append(record)
+        for record in records_to_update:
+            record_id = record["fields"].pop("id")
+            record["id"] = str(record_id)
+            clean_records_to_update.append(record)
         
         clean_new_records = []
-        all_records = records_to_update + records_to_create
-        for record in all_records:
+
+        for record in records_to_create:
             record["fields"].pop("id")
             clean_new_records.append(record)
         
 
         for record_update_chunk in self._chunk(clean_records_to_update, self.max_size):
-            self.logger.info(f"Posting records: {record_update_chunk}")
+            self.logger.info(f"Posting records")
             self._request(
                 "PATCH",
                 endpoint,
@@ -204,7 +204,7 @@ class AirtableSink(BatchSink):
             )
 
         for record_create_chunk in self._chunk(clean_new_records, self.max_size):
-            self.logger.info(f"Posting records: {record_create_chunk}")
+            self.logger.info(f"Posting records")
             self._request(
                 "POST",
                 endpoint,
