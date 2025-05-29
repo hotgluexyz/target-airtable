@@ -97,7 +97,7 @@ class AirtableSink(BatchSink):
 
         return response
     
-    @backoff.on_exception(backoff.expo, (requests.exceptions.RequestException, RetriableAPIError), max_tries=5)
+    @backoff.on_exception(backoff.expo, (requests.exceptions.RequestException, RetriableAPIError), max_tries=5, base=5, jitter=None)
     def _request(self, method, url, params=None, headers={}, data={}, *args, **kwargs):
         new_headers = {'Authorization': 'Bearer {}'.format(self.config['access_token'])}
         headers.update(new_headers)
