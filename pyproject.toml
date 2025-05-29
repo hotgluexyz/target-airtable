@@ -6,7 +6,7 @@ authors = ["hotglue"]
 license = "Apache 2.0"
 
 [tool.poetry.dependencies]
-python = "<3.9,>=3.7"
+python = "<3.11,>=3.7"
 requests = "^2.25.1"
 singer-sdk = "^0.3.2"
 airtable-python = "^0.1.1"
