@@ -12,7 +12,7 @@ import urllib.parse
 
 from airtable.client import Client
 from singer_sdk.sinks import BatchSink
-
+from singer_sdk.exceptions import RetriableAPIError
 class AirtableSink(BatchSink):
     """Airtable target sink class."""
 
@@ -68,11 +68,14 @@ class AirtableSink(BatchSink):
 
     def validate_response(self, response: requests.Response) -> None:
         """Validate HTTP response."""
+        if response.status_code == 422 and "DUPLICATE_OR_EMPTY_FIELD_NAME" in response.text:
+            return
+
         if response.status_code == 401:
             self._refresh_token()
         
         if response.status_code == 429:
-            raise Exception(f"Too Many Requests for path: {response.request.url}")
+            raise RetriableAPIError(f"Too Many Requests for path: {response.request.url}")
         
         if response.status_code == 404:
             pass
@@ -82,7 +85,7 @@ class AirtableSink(BatchSink):
                 f"{response.reason} for path: {response.request.url}"
                 f" with text:{response.text} "
             )
-            raise Exception(msg)
+            raise RetriableAPIError(msg)
 
         elif 500 <= response.status_code < 600:
             msg = (
@@ -94,7 +97,7 @@ class AirtableSink(BatchSink):
 
         return response
     
-    @backoff.on_exception(backoff.expo, requests.exceptions.RequestException, max_tries=5)
+    @backoff.on_exception(backoff.expo, (requests.exceptions.RequestException, RetriableAPIError), max_tries=5)
     def _request(self, method, url, params=None, headers={}, data={}, *args, **kwargs):
         new_headers = {'Authorization': 'Bearer {}'.format(self.config['access_token'])}
         headers.update(new_headers)
@@ -122,22 +125,69 @@ class AirtableSink(BatchSink):
         base_id = self.config.get("base_id")
         # Get the table name (URL encoded)
         table_name = self.config.get("table_name", urllib.parse.quote(self.stream_name))
-        token = self.config.get("access_token")
         endpoint = f"{records_url}/{base_id}/{table_name}"
 
+        # Make sure all fields exist
+        for field in self.schema['properties']:
+            type = "singleLineText"
+            options = None
+
+            match self.schema['properties'][field]['type'][0]:
+                case "boolean":
+                    type = "checkbox"
+                    options = { "icon": "check", "color": "greenBright" }
+                case "integer":
+                    type = "number"
+                    options = {
+                        "precision": 0
+                    }
+
+            # if self.schema['properties'][field].get('format') == "date-time":
+            #     type = "date"
+            #     options = {
+            #         "dateFormat": {
+            #         "name": "iso"
+            #         },
+            #         "timeFormat": "24hour",
+            #         "timeZone": "utc",
+            #         "showTime": True
+            #     }
+
+            tables_res = self._request(
+                "GET",
+                f"{records_url}/meta/bases/{base_id}/tables",
+            )
+
+            tables = tables_res.json()['tables']
+
+            table_id = [table['id'] for table in tables if table['name'] == table_name][0]
+
+            payload = {
+                "name": field,
+                "type": type
+            }
+            if options is not None:
+                payload['options'] = options
+
+            self._request(
+                "POST",
+                f"{records_url}/meta/bases/{base_id}/tables/{table_id}/fields",
+                json=payload,
+            )
 
         records_to_update = [record for record in records if record["fields"]["id"] is not None]
         records_to_create = [record for record in records if record["fields"]["id"] in [None, ""]]
 
         # Make the request to patch the records
         clean_records_to_update = []
-        for record in records_to_update:
-            record_id = record["fields"].pop("id")
-            record["id"] = record_id
-            clean_records_to_update.append(record)
+        # for record in records_to_update:
+        #     record_id = record["fields"].pop("id")
+        #     record["id"] = str(record_id)
+        #     clean_records_to_update.append(record)
         
         clean_new_records = []
-        for record in records_to_create:
+        all_records = records_to_update + records_to_create
+        for record in all_records:
             record["fields"].pop("id")
             clean_new_records.append(record)
         
@@ -148,7 +198,7 @@ class AirtableSink(BatchSink):
                 "PATCH",
                 endpoint,
                 json={
-                    "records": record_update_chunk,
+                    "records": json.loads(json.dumps(record_update_chunk, default=str)),
                     "typecast": True
                 },
             )
@@ -159,7 +209,7 @@ class AirtableSink(BatchSink):
                 "POST",
                 endpoint,
                 json={
-                    "records": record_create_chunk,
+                    "records": json.loads(json.dumps(record_create_chunk, default=str)),
                     "typecast": True
                 },
             )
