@@ -1,0 +1,24 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "target-airtable",
+            "type": "python",
+            "request": "launch",
+            "justMyCode": false,
+            "program": "../target_airtable/target.py",
+            "cwd": "/Users/hassansyyid/Workspace/targets/target-airtable/.secrets",
+            "args": [
+                "<",
+                "data.singer",
+                "--config",
+                "config.json"
+            ],
+            "console": "integratedTerminal",
+            "python": "/Users/hassansyyid/env/target-airtable/bin/python"
+        }
+    ]
+}

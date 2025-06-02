@@ -12,7 +12,7 @@ import urllib.parse
 
 from airtable.client import Client
 from singer_sdk.sinks import BatchSink
-from singer_sdk.exceptions import RetriableAPIError
+from singer_sdk.exceptions import RetriableAPIError, FatalAPIError
 class AirtableSink(BatchSink):
     """Airtable target sink class."""
 
@@ -68,8 +68,11 @@ class AirtableSink(BatchSink):
 
     def validate_response(self, response: requests.Response) -> None:
         """Validate HTTP response."""
-        if response.status_code == 422 and "DUPLICATE_OR_EMPTY_FIELD_NAME" in response.text:
-            return
+        if response.status_code == 422:
+            if "DUPLICATE_OR_EMPTY_FIELD_NAME" in response.text:
+                return
+            else:
+                raise FatalAPIError(f"Airtable API Error: {response.text}")
 
         if response.status_code == 401:
             self._refresh_token()
@@ -93,7 +96,7 @@ class AirtableSink(BatchSink):
                 f"{response.reason} for path: {response.request.url}"
                 f" with text:{response.text} "
             )
-            raise Exception(msg)
+            raise FatalAPIError(msg)
 
         return response
     
@@ -125,9 +128,11 @@ class AirtableSink(BatchSink):
         base_id = self.config.get("base_id")
         # Get the table name (URL encoded)
         table_name = self.config.get("table_name", urllib.parse.quote(self.stream_name))
+
         endpoint = f"{records_url}/{base_id}/{table_name}"
 
         # Make sure all fields exist
+        fields = []
         for field in self.schema['properties']:
             type = "singleLineText"
             options = None
@@ -153,15 +158,6 @@ class AirtableSink(BatchSink):
             #         "showTime": True
             #     }
 
-            tables_res = self._request(
-                "GET",
-                f"{records_url}/meta/bases/{base_id}/tables",
-            )
-
-            tables = tables_res.json()['tables']
-
-            table_id = [table['id'] for table in tables if table['name'] == table_name][0]
-
             payload = {
                 "name": field,
                 "type": type
@@ -169,11 +165,36 @@ class AirtableSink(BatchSink):
             if options is not None:
                 payload['options'] = options
 
+            fields.append(payload)
+
+        tables_res = self._request(
+            "GET",
+            f"{records_url}/meta/bases/{base_id}/tables",
+        )
+
+        tables = tables_res.json()['tables']
+        matching_table = [table['id'] for table in tables if table['name'] == table_name]
+
+        if not matching_table:
+            # https://api.airtable.com/v0/meta/bases/{baseId}/tables
+
+            # Create the table
             self._request(
                 "POST",
-                f"{records_url}/meta/bases/{base_id}/tables/{table_id}/fields",
-                json=payload,
+                f"{records_url}/meta/bases/{base_id}/tables",
+                json={
+                    "name": table_name,
+                    "fields": fields
+                }
             )
+        else:
+            table_id = matching_table[0]
+            for field in fields:
+                self._request(
+                    "POST",
+                    f"{records_url}/meta/bases/{base_id}/tables/{table_id}/fields",
+                    json=field,
+                )
 
         records_to_update = [record for record in records if record["fields"]["id"] is not None]
         records_to_create = [record for record in records if record["fields"]["id"] in [None, ""]]
@@ -181,8 +202,6 @@ class AirtableSink(BatchSink):
         # Make the request to patch the records
         clean_records_to_update = []
         for record in records_to_update:
-            record_id = record["fields"].pop("id")
-            record["id"] = str(record_id)
             clean_records_to_update.append(record)
         
         clean_new_records = []
@@ -195,9 +214,10 @@ class AirtableSink(BatchSink):
         for record_update_chunk in self._chunk(clean_records_to_update, self.max_size):
             self.logger.info(f"Posting records")
             self._request(
-                "PATCH",
+                "PUT",
                 endpoint,
                 json={
+                    "performUpsert": {"fieldsToMergeOn": ["id"]},
                     "records": json.loads(json.dumps(record_update_chunk, default=str)),
                     "typecast": True
                 },
