@@ -146,6 +146,11 @@ class AirtableSink(BatchSink):
                     options = {
                         "precision": 0
                     }
+                case "number":
+                    type = "number"
+                    options = {
+                        "precision": 2
+                    }
 
             # if self.schema['properties'][field].get('format') == "date-time":
             #     type = "date"
