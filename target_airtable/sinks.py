@@ -132,6 +132,9 @@ class AirtableSink(BatchSink):
         endpoint = f"{records_url}/{base_id}/{table_name}"
         primary_key = self.key_properties[0] if self.key_properties else "id"
 
+        if primary_key not in self.schema['properties']:
+            raise FatalAPIError(f"Primary key '{primary_key}' not found in schema for stream '{self.stream_name}'")
+
         # Make sure all fields exist
         fields = []
         for field in self.schema['properties']:
