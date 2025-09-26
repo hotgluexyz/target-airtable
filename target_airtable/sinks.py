@@ -130,6 +130,10 @@ class AirtableSink(BatchSink):
         table_name = self.config.get("table_name", urllib.parse.quote(self.stream_name))
 
         endpoint = f"{records_url}/{base_id}/{table_name}"
+        primary_key = self.key_properties[0] if self.key_properties else "id"
+
+        if primary_key not in self.schema['properties']:
+            raise FatalAPIError(f"Primary key '{primary_key}' not found in schema for stream '{self.stream_name}'")
 
         # Make sure all fields exist
         fields = []
@@ -145,6 +149,11 @@ class AirtableSink(BatchSink):
                     type = "number"
                     options = {
                         "precision": 0
+                    }
+                case "number":
+                    type = "number"
+                    options = {
+                        "precision": 2
                     }
 
             # if self.schema['properties'][field].get('format') == "date-time":
@@ -165,7 +174,11 @@ class AirtableSink(BatchSink):
             if options is not None:
                 payload['options'] = options
 
-            fields.append(payload)
+            if field == primary_key:
+                # inserts PK as first in the list because Airtable uses the first field as PK when creating a table
+                fields.insert(0, payload)
+            else:
+                fields.append(payload)
 
         tables_res = self._request(
             "GET",
@@ -196,8 +209,8 @@ class AirtableSink(BatchSink):
                     json=field,
                 )
 
-        records_to_update = [record for record in records if record["fields"]["id"] is not None]
-        records_to_create = [record for record in records if record["fields"]["id"] in [None, ""]]
+        records_to_update = [record for record in records if record["fields"][primary_key] is not None]
+        records_to_create = [record for record in records if record["fields"][primary_key] in [None, ""]]
 
         # Make the request to patch the records
         clean_records_to_update = []
@@ -207,7 +220,7 @@ class AirtableSink(BatchSink):
         clean_new_records = []
 
         for record in records_to_create:
-            record["fields"].pop("id")
+            record["fields"].pop(primary_key)
             clean_new_records.append(record)
         
 
@@ -217,7 +230,7 @@ class AirtableSink(BatchSink):
                 "PUT",
                 endpoint,
                 json={
-                    "performUpsert": {"fieldsToMergeOn": ["id"]},
+                    "performUpsert": {"fieldsToMergeOn": [primary_key]},
                     "records": json.loads(json.dumps(record_update_chunk, default=str)),
                     "typecast": True
                 },
