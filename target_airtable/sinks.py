@@ -130,9 +130,9 @@ class AirtableSink(BatchSink):
         table_name = self.config.get("table_name", urllib.parse.quote(self.stream_name))
 
         endpoint = f"{records_url}/{base_id}/{table_name}"
-        primary_key = self.key_properties[0] if self.key_properties else "id"
+        primary_key = self.key_properties[0] if self.key_properties else None
 
-        if primary_key not in self.schema['properties']:
+        if primary_key and primary_key not in self.schema['properties']:
             raise FatalAPIError(f"Primary key '{primary_key}' not found in schema for stream '{self.stream_name}'")
 
         # Make sure all fields exist
@@ -174,7 +174,7 @@ class AirtableSink(BatchSink):
             if options is not None:
                 payload['options'] = options
 
-            if field == primary_key:
+            if primary_key and field == primary_key:
                 # inserts PK as first in the list because Airtable uses the first field as PK when creating a table
                 fields.insert(0, payload)
             else:
@@ -209,35 +209,44 @@ class AirtableSink(BatchSink):
                     json=field,
                 )
 
-        records_to_update = [record for record in records if record["fields"][primary_key] is not None]
-        records_to_create = [record for record in records if record["fields"][primary_key] in [None, ""]]
+        if primary_key:
+            records_to_update = [record for record in records if record["fields"][primary_key] is not None]
+            records_to_create = [record for record in records if record["fields"][primary_key] in [None, ""]]
 
-        # Make the request to patch the records
-        clean_records_to_update = []
-        for record in records_to_update:
-            clean_records_to_update.append(record)
+            # Make the request to patch the records
+            clean_records_to_update = []
+            for record in records_to_update:
+                clean_records_to_update.append(record)
+            
+            clean_new_records = []
+
+            for record in records_to_create:
+                record["fields"].pop(primary_key)
+                clean_new_records.append(record)
+        else:
+            # No primary key - treat all records as new records to create
+            records_to_update = []
+            clean_records_to_update = []
+            records_to_create = records
+            clean_new_records = records
         
-        clean_new_records = []
 
-        for record in records_to_create:
-            record["fields"].pop(primary_key)
-            clean_new_records.append(record)
-        
-
-        for record_update_chunk in self._chunk(clean_records_to_update, self.max_size):
-            self.logger.info(f"Posting records")
-            self._request(
-                "PUT",
-                endpoint,
-                json={
-                    "performUpsert": {"fieldsToMergeOn": [primary_key]},
-                    "records": json.loads(json.dumps(record_update_chunk, default=str)),
-                    "typecast": True
-                },
-            )
+        # Only perform upserts if we have a primary key and records to update
+        if primary_key and clean_records_to_update:
+            for record_update_chunk in self._chunk(clean_records_to_update, self.max_size):
+                self.logger.info(f"Updating records")
+                self._request(
+                    "PUT",
+                    endpoint,
+                    json={
+                        "performUpsert": {"fieldsToMergeOn": [primary_key]},
+                        "records": json.loads(json.dumps(record_update_chunk, default=str)),
+                        "typecast": True
+                    },
+                )
 
         for record_create_chunk in self._chunk(clean_new_records, self.max_size):
-            self.logger.info(f"Posting records")
+            self.logger.info(f"Creating records")
             self._request(
                 "POST",
                 endpoint,
