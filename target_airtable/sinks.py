@@ -19,12 +19,19 @@ class AirtableSink(BatchSink):
     max_size = 10
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.client = Client(
-            self.config["client_id"],
-            self.config["client_secret"],
-            self.config["redirect_uri"],
-            uuid.uuid4().__str__().replace("-", "")*2
-        )
+        # Default to OAuth for backward compatibility
+        self.auth_method = self.config.get("authorization_method", "oauth")
+        
+        if self.auth_method == "oauth":
+            self.client = Client(
+                self.config["client_id"],
+                self.config["client_secret"],
+                self.config.get("redirect_uri", ""),
+                uuid.uuid4().__str__().replace("-", "")*2
+            )
+        else:
+            # For personal access token, we don't need the OAuth client
+            self.client = None
 
     def _chunk(self, lst, n):
         """Yield successive n-sized chunks from lst."""
@@ -57,6 +64,9 @@ class AirtableSink(BatchSink):
 
     def _refresh_token(self):
         """Refresh OAuth token."""
+        if self.auth_method != "oauth":
+            return
+        
         self.client.set_token({
             "access_token": self.config["access_token"],
             "refresh_token": self.config["refresh_token"],
@@ -75,7 +85,10 @@ class AirtableSink(BatchSink):
                 raise FatalAPIError(f"Airtable API Error: {response.text}")
 
         if response.status_code == 401:
-            self._refresh_token()
+            if self.auth_method == "oauth":
+                self._refresh_token()
+            else:
+                raise FatalAPIError(f"Authentication failed. Please check your personal access token.")
         
         if response.status_code == 429:
             raise RetriableAPIError(f"Too Many Requests for path: {response.request.url}")
@@ -102,7 +115,12 @@ class AirtableSink(BatchSink):
     
     @backoff.on_exception(backoff.expo, (requests.exceptions.RequestException, RetriableAPIError), max_tries=5, base=5, jitter=None)
     def _request(self, method, url, params=None, headers={}, data={}, *args, **kwargs):
-        new_headers = {'Authorization': 'Bearer {}'.format(self.config['access_token'])}
+        if self.auth_method == "oauth":
+            token = self.config['access_token']
+        else:
+            token = self.config['personal_access_token']
+        
+        new_headers = {'Authorization': 'Bearer {}'.format(token)}
         headers.update(new_headers)
         response = requests.request(method, url, params=params, headers=headers, data=data, *args, **kwargs)
         return self.validate_response(response)
